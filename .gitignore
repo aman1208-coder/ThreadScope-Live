@@ -1,0 +1,38 @@
+# Maven
+backend/target/
+*.jar
+*.war
+
+# Wrapper
+!backend/.mvn/wrapper/maven-wrapper.jar
+!backend/.mvn/wrapper/maven-wrapper.properties
+
+# VS Code
+.vscode/
+
+# IDE
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.factorypath
+
+# Node / React
+/node_modules/
+/build/
+/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Env
+.env
+.env.local
+.env.*
+
