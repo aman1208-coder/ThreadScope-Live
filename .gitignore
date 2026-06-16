@@ -23,6 +23,18 @@ backend/target/
 /build/
 /dist/
 
+# Java build artifacts
+*.class
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Java crash logs
+hs_err_pid*
+replay_pid*
+
 # OS
 .DS_Store
 Thumbs.db

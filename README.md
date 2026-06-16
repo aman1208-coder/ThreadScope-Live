@@ -36,3 +36,4 @@ Open `frontend/index.html` in a browser or use a local development server such a
 ## GitHub
 
 This repository is configured for GitHub hosting with a professional project structure and proper ignore rules for generated files.
+
