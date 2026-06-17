@@ -1585,8 +1585,8 @@ function pushLog(){
 // REAL WEBSOCKET CONNECTION — streams live JVM metrics from Java backend
 // Backend URLs are configured via environment variables at build time.
 // ══════════════════════════════════════════════════════════════════
-const WS_URL = (window.APP_CONFIG && window.APP_CONFIG.WS_URL) || 'ws://localhost:8080/ws/metrics';
-const API_URL = (window.APP_CONFIG && window.APP_CONFIG.API_URL) || 'http://localhost:8080/api';
+const WS_URL = (window.APP_CONFIG && window.APP_CONFIG.WS_URL) || 'wss://threadscope-live.onrender.com/ws/metrics';
+const API_URL = (window.APP_CONFIG && window.APP_CONFIG.API_URL) || 'https://threadscope-live.onrender.com/api';
 let realWs = null;
 let wsReconnectDelay = 1000;
 let usingRealData = false;

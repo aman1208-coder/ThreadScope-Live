@@ -24,8 +24,8 @@ if (fs.existsSync(outDir)) {
 fs.mkdirSync(outDir, { recursive: true });
 
 const html = fs.readFileSync(indexPath, 'utf8');
-const apiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
-const wsUrl = process.env.WS_URL || process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws/metrics';
+const apiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'https://threadscope-live.onrender.com/api';
+const wsUrl = process.env.WS_URL || process.env.NEXT_PUBLIC_WS_URL || 'wss://threadscope-live.onrender.com/ws/metrics';
 
 const config = {
   API_URL: apiUrl,
