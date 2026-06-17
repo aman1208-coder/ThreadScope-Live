@@ -980,6 +980,12 @@ let sheetExpanded=false;
 let deviceBeta=0, deviceGamma=0;
 // pinch zoom state on graph cards
 let pinchStartDist=0, pinchGraphZoom=1;
+// ── Pendo Track Event deduplication state ─────────────────────
+let _prevAiSeverity = null;
+let _prevHealthLabel = null;
+let _deadlockTracked = false;
+let _chaosVerifiedThisSession = false;
+let _cometInputMethod = 'mouse';
 
 // ══════════════════════════════════════════════════════════════════
 // LOADING SCREEN
@@ -1064,6 +1070,15 @@ let joyX=0, joyY=0;
 function launchComet(sx,sy,dx,dy){
   comet={x:sx,y:sy,vx:dx*0.13,vy:dy*0.13,life:200,trail:[],radius:20};
   playClunk(380,'sawtooth');
+  if (typeof pendo !== 'undefined') {
+    pendo.track('comet_launched', {
+      velocityMagnitude: Math.round(Math.sqrt(dx*dx+dy*dy)),
+      isChaos: isChaos,
+      particleCount: particles.length,
+      isMobile: isMobile,
+      inputMethod: _cometInputMethod
+    });
+  }
 }
 
 $('physics-side').addEventListener('mousedown',e=>{
@@ -1072,6 +1087,7 @@ $('physics-side').addEventListener('mousedown',e=>{
 });
 document.addEventListener('mouseup',e=>{
   if(!isDrawingComet)return;
+  _cometInputMethod='mouse';
   const r=phys.getBoundingClientRect();
   launchComet(cometStartX,cometStartY,(e.clientX-r.left)-cometStartX,(e.clientY-r.top)-cometStartY);
   isDrawingComet=false;
@@ -1082,6 +1098,7 @@ $('physics-side').addEventListener('touchstart',e=>{
 },{passive:true});
 $('physics-side').addEventListener('touchend',e=>{
   if(!isDrawingComet)return;
+  _cometInputMethod='touch';
   const t=e.changedTouches[0],r=phys.getBoundingClientRect();
   launchComet(cometStartX,cometStartY,(t.clientX-r.left)-cometStartX,(t.clientY-r.top)-cometStartY);
   isDrawingComet=false;
@@ -1630,6 +1647,12 @@ function connectWebSocket() {
       $('wsStatus').textContent = 'WebSocket · LIVE (Java backend)';
       $('wsStatus').style.color = 'var(--green)';
       console.log('[ThreadScope] Connected to real Java backend at', WS_URL);
+      if (typeof pendo !== 'undefined') {
+        pendo.track('websocket_connection_established', {
+          wsUrl: WS_URL.substring(0, 80),
+          reconnectDelay: wsReconnectDelay
+        });
+      }
       pushLog();
     };
 
@@ -1654,6 +1677,12 @@ function connectWebSocket() {
     realWs.onclose = () => {
       wsConnected = false;
       usingRealData = false;
+      if (typeof pendo !== 'undefined') {
+        pendo.track('websocket_connection_lost', {
+          reconnectDelay: wsReconnectDelay,
+          wasUsingRealData: true
+        });
+      }
       // Stop keepalive timer
       if (window._wsPingTimer) { clearInterval(window._wsPingTimer); window._wsPingTimer = null; }
       $('wsDot').classList.add('disc');
@@ -1769,9 +1798,20 @@ function applyRealSnapshot(data) {
       $('warnBanner').classList.add('visible');
       const _warnEl = $('warnBanner').querySelector('.warn-text strong');
       if (_warnEl) _warnEl.textContent = '🔴 REAL DEADLOCK DETECTED — ' + j.deadlockedThreadIds.length + ' threads';
+      if (!_deadlockTracked) {
+        _deadlockTracked = true;
+        if (typeof pendo !== 'undefined') {
+          pendo.track('deadlock_detected', {
+            deadlockedThreadCount: j.deadlockedThreadIds.length,
+            isChaos: isChaos,
+            usingRealData: usingRealData
+          });
+        }
+      }
     } else if (!isChaos) {
       // Deadlock resolved — auto-dismiss banner
       $('warnBanner').classList.remove('visible');
+      _deadlockTracked = false;
     }
 
     // Update thread count
@@ -1885,6 +1925,14 @@ function checkBackend(retries) {
     .then(r => { clearTimeout(tmo); return r.json(); })
     .then(data => {
       console.log('[ThreadScope] Backend ready:', data.status);
+      if (typeof pendo !== 'undefined') {
+        pendo.track('backend_availability_resolved', {
+          status: 'available',
+          retriesRemaining: retries,
+          apiUrl: API_URL.substring(0, 80),
+          backendVersion: data.version ? String(data.version).substring(0, 20) : 'unknown'
+        });
+      }
       showConnectionBanner();
     })
     .catch(() => {
@@ -1895,6 +1943,13 @@ function checkBackend(retries) {
         setTimeout(() => checkBackend(retries - 1), 2000);
       } else {
         console.log('[ThreadScope] Backend not reachable — using simulated data');
+        if (typeof pendo !== 'undefined') {
+          pendo.track('backend_availability_resolved', {
+            status: 'unreachable',
+            retriesRemaining: 0,
+            apiUrl: API_URL.substring(0, 80)
+          });
+        }
         $('wsStatus').textContent = 'Simulated (start Java backend for live data)';
         $('wsStatus').style.color = 'var(--gold)';
       }
@@ -2038,9 +2093,20 @@ const _rawChaosToggle = function(e){
     const maxParticles = Math.min(targetParticles + 20, MAX_PARTICLES);
     while(particles.length>maxParticles) particles.pop();
     pushLog(); playChaosStart();
+    _chaosVerifiedThisSession = false;
   } else {
     while(particles.length>targetParticles)particles.pop();
     sparkles.length=0; playChaosStop();
+  }
+  if (typeof pendo !== 'undefined') {
+    pendo.track('chaos_mode_toggled', {
+      enabled: isChaos,
+      particleCount: particles.length,
+      threadPoolSize: poolSize,
+      usingRealData: usingRealData,
+      isMobile: isMobile,
+      fps: fps
+    });
   }
 };
 $('chaosBtn').addEventListener('click', Security.rateLimiter(_rawChaosToggle, 5, 1000));
@@ -2086,6 +2152,19 @@ $('exportBtn').addEventListener('click',function(e){
   //       and use secure blob download helper
   const safeMetrics=Security.sanitizeExportObject(metrics);
   Security.safeBlobDownload(JSON.stringify(safeMetrics,null,2),'application/json','threadscope-metrics.json');
+  if (typeof pendo !== 'undefined') {
+    pendo.track('metrics_exported', {
+      isChaos: isChaos,
+      fps: fps,
+      particleCount: particles.length,
+      throughputEvtPerSec: throughput,
+      queueDepth: Math.round(q1[q1.length-1]+q2[q2.length-1]+q3[q3.length-1]),
+      latencyMs: latData[latData.length-1].toFixed(3),
+      threadPoolSize: poolSize,
+      spinCount: spinCount,
+      usingRealData: usingRealData
+    });
+  }
   playClunk(660,'sine',.1);
 });
 
@@ -2330,6 +2409,21 @@ $('poolSlider').addEventListener('input',function(){
   poolSize=Security.safeInt(this.value,1,16,8);$('poolSliderVal').textContent=poolSize;
   $('threadCount').textContent=poolSize;
 });
+// Pendo Track: physics_simulation_configured (fires on slider release, not every drag tick)
+['partSlider','gravSlider','elastSlider','poolSlider'].forEach(function(id) {
+  $(id).addEventListener('change', function() {
+    if (typeof pendo !== 'undefined') {
+      var names = {partSlider:'particles',gravSlider:'gravity',elastSlider:'elasticity',poolSlider:'threadPool'};
+      pendo.track('physics_simulation_configured', {
+        controlName: names[id],
+        newValue: Number(this.value),
+        isChaos: isChaos,
+        particleCount: particles.length,
+        threadPoolSize: poolSize
+      });
+    }
+  });
+});
 
 // ══════════════════════════════════════════════════════════════════
 // KEYBOARD SHORTCUTS
@@ -2400,6 +2494,22 @@ function updateAiCard(diag) {
   diag.recommendation = diag.recommendation || '—';
   diag.signals     = Array.isArray(diag.signals)  ? diag.signals  : [];
   diag.history     = Array.isArray(diag.history)  ? diag.history  : [];
+
+  if (diag.issue !== _prevAiSeverity) {
+    var _prevIssue = _prevAiSeverity;
+    _prevAiSeverity = diag.issue;
+    if (_prevIssue !== null && typeof pendo !== 'undefined') {
+      pendo.track('ai_diagnosis_changed', {
+        issue: String(diag.issue).substring(0, 50),
+        previousIssue: String(_prevIssue).substring(0, 50),
+        severity: diag.severity,
+        confidence: Math.round(diag.confidence),
+        rootCause: String(diag.rootCause).substring(0, 80),
+        dataSource: usingRealData ? 'live' : 'simulated',
+        isChaos: isChaos
+      });
+    }
+  }
 
   const cfg   = AI_SEV_CONFIG[diag.severity] || AI_SEV_CONFIG.HEALTHY;
   const card  = $('aiCard');
@@ -2565,6 +2675,20 @@ function updateHealthScore(score) {
   const col = healthColor(score);
   const lbl = healthLabel(score);
 
+  if (lbl !== _prevHealthLabel) {
+    var _prevHL = _prevHealthLabel;
+    _prevHealthLabel = lbl;
+    if (_prevHL !== null && typeof pendo !== 'undefined') {
+      pendo.track('health_score_status_changed', {
+        score: score,
+        status: lbl,
+        previousStatus: _prevHL,
+        isChaos: isChaos,
+        usingRealData: usingRealData
+      });
+    }
+  }
+
   // Ring
   drawHealthRing(score);
 
@@ -2663,6 +2787,15 @@ function verifyChaosActive(data) {
   if (chaosThreads > 0) {
     console.log('[ThreadScope] ✅ CHAOS VERIFIED — real threads:', chaosThreads,
                 '| BLOCKED:', blocked, '| RUNNABLE:', runnable);
+    if (!_chaosVerifiedThisSession && typeof pendo !== 'undefined') {
+      _chaosVerifiedThisSession = true;
+      pendo.track('chaos_verified', {
+        chaosThreadCount: chaosThreads,
+        blockedThreadCount: blocked,
+        runnableThreadCount: runnable,
+        totalThreadCount: threads.length
+      });
+    }
   } else {
     console.warn('[ThreadScope] ⚠️  Chaos enabled but no chaos-* threads found.',
                  'Check Java backend is running and ChaosWorkloadGenerator is wired in.');
