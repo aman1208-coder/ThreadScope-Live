@@ -62,8 +62,36 @@ To deploy on Render:
 2. Ensure `render.yaml` is present in the repository root and Render has access to it.
 3. The service will build using `./mvnw -DskipTests package` and start with `java -jar target/threadscope-agent-2.0.0.jar`.
 
+## Vercel frontend deployment
+ 
+The frontend is prepared for static deployment on Vercel. It uses `frontend/package.json` and `frontend/build.js` to generate a production-ready `frontend/dist` site.
+ 
+### Environment variables
+ 
+Set these variables in Vercel under Project Settings > Environment Variables:
+ 
+- `API_URL` = `https://<your-backend-url>/api`
+- `WS_URL` = `wss://<your-backend-url>/ws/metrics`
+ 
+### Deploy on Vercel
+ 
+1. Create a Vercel project for this repository.
+2. Ensure `vercel.json` is present in the repository root.
+3. Set `API_URL` and `WS_URL` in Vercel environment variables.
+4. Deploy the project; Vercel will run `npm install` in `frontend` and `npm run build`.
+ 
+### Local build
+ 
+From the `frontend` directory:
+ 
+```bash
+npm install
+npm run build
+```
+ 
+The generated output is placed in `frontend/dist`.
+ 
 ## Notes
-
-- Replace any localhost references in `frontend/index.html` with your production backend URL before deploying the frontend.
-- If you want assistance deploying the frontend (Vercel) or replacing URLs automatically, I can prepare that next.
-
+ 
+- The frontend now reads backend endpoints from environment variables at build time.
+- Use `.env.example` at the project root to document the required variables.

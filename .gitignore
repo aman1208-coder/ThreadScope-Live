@@ -19,9 +19,9 @@ backend/target/
 .factorypath
 
 # Node / React
-/node_modules/
-/build/
-/dist/
+**/node_modules/
+**/build/
+**/dist/
 
 # Java build artifacts
 *.class

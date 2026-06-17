@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- ══ SECURITY HEADERS (via meta — real deployment should set HTTP headers) ═════════ -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws://localhost:8080 ws://127.0.0.1:8080 http://localhost:8080 http://127.0.0.1:8080; script-src 'self' 'unsafe-inline' 'unsafe-eval';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws: wss: http: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval';">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <meta http-equiv="X-Frame-Options" content="DENY">
 <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
@@ -1582,10 +1582,10 @@ function pushLog(){
 
 // ══════════════════════════════════════════════════════════════════
 // REAL WEBSOCKET CONNECTION — streams live JVM metrics from Java backend
-// Backend: ws://localhost:8080/ws/metrics (Spring Boot + ThreadMXBean)
+// Backend URLs are configured via environment variables at build time.
 // ══════════════════════════════════════════════════════════════════
-const WS_URL = 'ws://localhost:8080/ws/metrics';
-const API_URL = 'http://localhost:8080/api';
+const WS_URL = (window.APP_CONFIG && window.APP_CONFIG.WS_URL) || 'ws://localhost:8080/ws/metrics';
+const API_URL = (window.APP_CONFIG && window.APP_CONFIG.API_URL) || 'http://localhost:8080/api';
 let realWs = null;
 let wsReconnectDelay = 1000;
 let usingRealData = false;
@@ -2686,7 +2686,7 @@ function verifyChaosActive(data) {
       <div class="arch-arrow">▼</div>
       <div class="arch-node">
         <div class="arch-node-title">⑤ WebSocket Stream</div>
-        <div class="arch-node-desc">Spring Boot broadcasts a JSON snapshot — threads, disruptor metrics, JVM stats, AI diagnosis — to every connected browser at 100ms intervals via ws://localhost:8080/ws/metrics.</div>
+        <div class="arch-node-desc">Spring Boot broadcasts a JSON snapshot — threads, disruptor metrics, JVM stats, AI diagnosis — to every connected browser at 100ms intervals via the configured WebSocket endpoint.</div>
         <span class="arch-node-badge" style="background:rgba(68,136,255,.1);color:var(--blue);border:1px solid rgba(68,136,255,.2)">10 FPS</span>
       </div>
       <div class="arch-arrow">▼</div>
