@@ -1,12 +1,11 @@
-FROM eclipse-temurin:17-jdk AS build
+FROM maven:3.9.8-eclipse-temurin-17 AS build
 WORKDIR /workspace
 
-# Copy Maven wrapper and project files to leverage layer caching
-COPY .mvn/ .mvn/
-COPY mvnw pom.xml ./
+# Copy only the Maven project files first to enable Docker layer caching
+COPY pom.xml ./
 COPY src ./src
 
-RUN chmod +x mvnw && ./mvnw -DskipTests clean package
+RUN mvn -DskipTests clean package
 
 FROM eclipse-temurin:17-jre
 WORKDIR /app
