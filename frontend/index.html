@@ -980,15 +980,12 @@ let sheetExpanded=false;
 let deviceBeta=0, deviceGamma=0;
 // pinch zoom state on graph cards
 let pinchStartDist=0, pinchGraphZoom=1;
-// ── Pendo Track Event state ───────────────────────────────────
-let _prevAiSeverity = 'HEALTHY';
-let _prevHealthLabel = 'HEALTHY';
-let _chaosStartTime = 0;
+// ── Pendo Track Event deduplication state ─────────────────────
+let _prevAiSeverity = null;
+let _prevHealthLabel = null;
 let _deadlockTracked = false;
 let _chaosVerifiedThisSession = false;
-let _wsConnectTime = 0;
 let _cometInputMethod = 'mouse';
-let _prevSliderValues = { particles: 80, gravity: 0.2, elasticity: 0.85, poolSize: 8 };
 
 // ══════════════════════════════════════════════════════════════════
 // LOADING SCREEN
@@ -1074,15 +1071,12 @@ function launchComet(sx,sy,dx,dy){
   comet={x:sx,y:sy,vx:dx*0.13,vy:dy*0.13,life:200,trail:[],radius:20};
   playClunk(380,'sawtooth');
   if (typeof pendo !== 'undefined') {
-    pendo.track('chaos_comet_launched', {
-      startX: Math.round(sx),
-      startY: Math.round(sy),
-      velocityX: Number((dx*0.13).toFixed(2)),
-      velocityY: Number((dy*0.13).toFixed(2)),
+    pendo.track('comet_launched', {
+      velocityMagnitude: Math.round(Math.sqrt(dx*dx+dy*dy)),
       isChaos: isChaos,
       particleCount: particles.length,
-      inputMethod: _cometInputMethod,
-      fps: fps
+      isMobile: isMobile,
+      inputMethod: _cometInputMethod
     });
   }
 }
@@ -1654,14 +1648,11 @@ function connectWebSocket() {
       $('wsStatus').style.color = 'var(--green)';
       console.log('[ThreadScope] Connected to real Java backend at', WS_URL);
       if (typeof pendo !== 'undefined') {
-        pendo.track('live_backend_connected', {
+        pendo.track('websocket_connection_established', {
           wsUrl: WS_URL.substring(0, 80),
-          reconnectDelay: wsReconnectDelay,
-          previouslyConnected: _wsConnectTime > 0,
-          sessionUptime: Math.round((Date.now() - performance.timeOrigin) / 1000)
+          reconnectDelay: wsReconnectDelay
         });
       }
-      _wsConnectTime = Date.now();
       pushLog();
     };
 
@@ -1687,14 +1678,11 @@ function connectWebSocket() {
       wsConnected = false;
       usingRealData = false;
       if (typeof pendo !== 'undefined') {
-        pendo.track('live_backend_disconnected', {
-          wsUrl: WS_URL.substring(0, 80),
+        pendo.track('websocket_connection_lost', {
           reconnectDelay: wsReconnectDelay,
-          connectionDuration: _wsConnectTime ? Math.round((Date.now() - _wsConnectTime) / 1000) : 0,
           wasUsingRealData: true
         });
       }
-      _wsConnectTime = 0;
       // Stop keepalive timer
       if (window._wsPingTimer) { clearInterval(window._wsPingTimer); window._wsPingTimer = null; }
       $('wsDot').classList.add('disc');
@@ -1816,10 +1804,7 @@ function applyRealSnapshot(data) {
           pendo.track('deadlock_detected', {
             deadlockedThreadCount: j.deadlockedThreadIds.length,
             isChaos: isChaos,
-            healthScore: parseInt($('healthScore').textContent) || 0,
-            dataSource: 'live',
-            latencyMs: Number(latData[latData.length-1].toFixed(3)),
-            blockedThreadCount: (data.threads || []).filter(function(t){ return t.state === 'BLOCKED'; }).length
+            usingRealData: usingRealData
           });
         }
       }
@@ -1941,9 +1926,9 @@ function checkBackend(retries) {
     .then(data => {
       console.log('[ThreadScope] Backend ready:', data.status);
       if (typeof pendo !== 'undefined') {
-        pendo.track('backend_status_verified', {
-          backendStatus: String(data.status || 'unknown').substring(0, 30),
-          retriesUsed: 5 - retries,
+        pendo.track('backend_availability_resolved', {
+          status: 'available',
+          retriesRemaining: retries,
           apiUrl: API_URL.substring(0, 80),
           backendVersion: data.version ? String(data.version).substring(0, 20) : 'unknown'
         });
@@ -1958,6 +1943,13 @@ function checkBackend(retries) {
         setTimeout(() => checkBackend(retries - 1), 2000);
       } else {
         console.log('[ThreadScope] Backend not reachable — using simulated data');
+        if (typeof pendo !== 'undefined') {
+          pendo.track('backend_availability_resolved', {
+            status: 'unreachable',
+            retriesRemaining: 0,
+            apiUrl: API_URL.substring(0, 80)
+          });
+        }
         $('wsStatus').textContent = 'Simulated (start Java backend for live data)';
         $('wsStatus').style.color = 'var(--gold)';
       }
@@ -2101,39 +2093,20 @@ const _rawChaosToggle = function(e){
     const maxParticles = Math.min(targetParticles + 20, MAX_PARTICLES);
     while(particles.length>maxParticles) particles.pop();
     pushLog(); playChaosStart();
-    _chaosStartTime = Date.now();
     _chaosVerifiedThisSession = false;
-    if (typeof pendo !== 'undefined') {
-      pendo.track('chaos_mode_activated', {
-        particleCount: particles.length,
-        poolSize: poolSize,
-        fps: fps,
-        dataSource: usingRealData ? 'live' : 'simulated',
-        throughput: throughput,
-        latencyMs: Number(latData[latData.length-1].toFixed(3)),
-        queueDepth: Math.round(q1[q1.length-1]+q2[q2.length-1]+q3[q3.length-1]),
-        healthScoreBefore: parseInt($('healthScore').textContent) || 0,
-        wsConnected: wsConnected
-      });
-    }
   } else {
     while(particles.length>targetParticles)particles.pop();
     sparkles.length=0; playChaosStop();
-    if (typeof pendo !== 'undefined') {
-      pendo.track('chaos_mode_deactivated', {
-        particleCount: particles.length,
-        poolSize: poolSize,
-        fps: fps,
-        dataSource: usingRealData ? 'live' : 'simulated',
-        throughput: throughput,
-        latencyMs: Number(latData[latData.length-1].toFixed(3)),
-        queueDepth: Math.round(q1[q1.length-1]+q2[q2.length-1]+q3[q3.length-1]),
-        healthScoreAfter: parseInt($('healthScore').textContent) || 0,
-        wsConnected: wsConnected,
-        chaosSessionDuration: _chaosStartTime ? Date.now() - _chaosStartTime : 0
-      });
-    }
-    _chaosStartTime = 0;
+  }
+  if (typeof pendo !== 'undefined') {
+    pendo.track('chaos_mode_toggled', {
+      enabled: isChaos,
+      particleCount: particles.length,
+      threadPoolSize: poolSize,
+      usingRealData: usingRealData,
+      isMobile: isMobile,
+      fps: fps
+    });
   }
 };
 $('chaosBtn').addEventListener('click', Security.rateLimiter(_rawChaosToggle, 5, 1000));
@@ -2158,18 +2131,7 @@ $('motionBtn').addEventListener('click',function(e){
   this.classList.toggle('on',motionEnabled); addRipple(this,e);
   $('motionPanel').classList.toggle('visible',motionEnabled);
   if(motionEnabled && typeof DeviceOrientationEvent!=='undefined' && DeviceOrientationEvent.requestPermission){
-    DeviceOrientationEvent.requestPermission().then(function(s){
-      if(s!=='granted') motionEnabled=false;
-      if(typeof pendo!=='undefined'){
-        pendo.track('device_motion_enabled',{
-          permissionGranted:s==='granted',isMobile:isMobile,isChaos:isChaos,particleCount:particles.length
-        });
-      }
-    });
-  } else if(motionEnabled && typeof pendo!=='undefined'){
-    pendo.track('device_motion_enabled',{
-      permissionGranted:true,isMobile:isMobile,isChaos:isChaos,particleCount:particles.length
-    });
+    DeviceOrientationEvent.requestPermission().then(s=>{ if(s!=='granted') motionEnabled=false; });
   }
 });
 
@@ -2195,14 +2157,12 @@ $('exportBtn').addEventListener('click',function(e){
       isChaos: isChaos,
       fps: fps,
       particleCount: particles.length,
-      throughputEventsPerSec: throughput,
-      latencyMs: Number(latData[latData.length-1].toFixed(3)),
+      throughputEvtPerSec: throughput,
       queueDepth: Math.round(q1[q1.length-1]+q2[q2.length-1]+q3[q3.length-1]),
-      poolSize: poolSize,
+      latencyMs: latData[latData.length-1].toFixed(3),
+      threadPoolSize: poolSize,
       spinCount: spinCount,
-      dataSource: usingRealData ? 'live' : 'simulated',
-      fileFormat: 'json',
-      hotMethodCount: HM_NAMES.length
+      usingRealData: usingRealData
     });
   }
   playClunk(660,'sine',.1);
@@ -2319,15 +2279,6 @@ document.querySelectorAll('.adv-tab').forEach(t=>{
     this.classList.add('active');
     advTab=this.dataset.tab;
     renderAdvTab();
-    if (typeof pendo !== 'undefined') {
-      pendo.track('advanced_metrics_tab_viewed', {
-        tabName: advTab,
-        isChaos: isChaos,
-        poolSize: poolSize,
-        fps: fps,
-        dataSource: usingRealData ? 'live' : 'simulated'
-      });
-    }
   });
 });
 
@@ -2458,21 +2409,19 @@ $('poolSlider').addEventListener('input',function(){
   poolSize=Security.safeInt(this.value,1,16,8);$('poolSliderVal').textContent=poolSize;
   $('threadCount').textContent=poolSize;
 });
-// Pendo Track: physics_simulation_configured (fires on slider release)
-['partSlider','gravSlider','elastSlider','poolSlider'].forEach(function(sliderId){
-  $(sliderId).addEventListener('change',function(){
-    var cfg={partSlider:{p:'particles',v:targetParticles,k:'particles',mn:50,mx:100},
-      gravSlider:{p:'gravity',v:gravity,k:'gravity',mn:0,mx:1},
-      elastSlider:{p:'elasticity',v:elasticity,k:'elasticity',mn:0.4,mx:1},
-      poolSlider:{p:'pool_size',v:poolSize,k:'poolSize',mn:1,mx:16}};
-    var c=cfg[sliderId];
-    if(typeof pendo!=='undefined'){
-      pendo.track('physics_simulation_configured',{
-        parameter:c.p,value:c.v,previousValue:_prevSliderValues[c.k],
-        minBound:c.mn,maxBound:c.mx,isChaos:isChaos,fps:fps
+// Pendo Track: physics_simulation_configured (fires on slider release, not every drag tick)
+['partSlider','gravSlider','elastSlider','poolSlider'].forEach(function(id) {
+  $(id).addEventListener('change', function() {
+    if (typeof pendo !== 'undefined') {
+      var names = {partSlider:'particles',gravSlider:'gravity',elastSlider:'elasticity',poolSlider:'threadPool'};
+      pendo.track('physics_simulation_configured', {
+        controlName: names[id],
+        newValue: Number(this.value),
+        isChaos: isChaos,
+        particleCount: particles.length,
+        threadPoolSize: poolSize
       });
     }
-    _prevSliderValues[c.k]=c.v;
   });
 });
 
@@ -2546,21 +2495,20 @@ function updateAiCard(diag) {
   diag.signals     = Array.isArray(diag.signals)  ? diag.signals  : [];
   diag.history     = Array.isArray(diag.history)  ? diag.history  : [];
 
-  if (diag.severity !== _prevAiSeverity) {
-    if (typeof pendo !== 'undefined') {
-      pendo.track('ai_diagnosis_severity_changed', {
+  if (diag.issue !== _prevAiSeverity) {
+    var _prevIssue = _prevAiSeverity;
+    _prevAiSeverity = diag.issue;
+    if (_prevIssue !== null && typeof pendo !== 'undefined') {
+      pendo.track('ai_diagnosis_changed', {
         issue: String(diag.issue).substring(0, 50),
+        previousIssue: String(_prevIssue).substring(0, 50),
         severity: diag.severity,
-        previousSeverity: _prevAiSeverity,
         confidence: Math.round(diag.confidence),
-        healthScore: diag.healthScore || 0,
         rootCause: String(diag.rootCause).substring(0, 80),
-        signalCount: diag.signals.length,
         dataSource: usingRealData ? 'live' : 'simulated',
         isChaos: isChaos
       });
     }
-    _prevAiSeverity = diag.severity;
   }
 
   const cfg   = AI_SEV_CONFIG[diag.severity] || AI_SEV_CONFIG.HEALTHY;
@@ -2728,18 +2676,17 @@ function updateHealthScore(score) {
   const lbl = healthLabel(score);
 
   if (lbl !== _prevHealthLabel) {
-    if (typeof pendo !== 'undefined') {
+    var _prevHL = _prevHealthLabel;
+    _prevHealthLabel = lbl;
+    if (_prevHL !== null && typeof pendo !== 'undefined') {
       pendo.track('health_score_status_changed', {
         score: score,
-        statusLabel: lbl,
-        previousStatusLabel: _prevHealthLabel,
-        previousScore: parseInt($('healthScore').textContent) || 0,
-        color: col,
+        status: lbl,
+        previousStatus: _prevHL,
         isChaos: isChaos,
-        dataSource: usingRealData ? 'live' : 'simulated'
+        usingRealData: usingRealData
       });
     }
-    _prevHealthLabel = lbl;
   }
 
   // Ring
@@ -2840,21 +2787,18 @@ function verifyChaosActive(data) {
   if (chaosThreads > 0) {
     console.log('[ThreadScope] ✅ CHAOS VERIFIED — real threads:', chaosThreads,
                 '| BLOCKED:', blocked, '| RUNNABLE:', runnable);
+    if (!_chaosVerifiedThisSession && typeof pendo !== 'undefined') {
+      _chaosVerifiedThisSession = true;
+      pendo.track('chaos_verified', {
+        chaosThreadCount: chaosThreads,
+        blockedThreadCount: blocked,
+        runnableThreadCount: runnable,
+        totalThreadCount: threads.length
+      });
+    }
   } else {
     console.warn('[ThreadScope] ⚠️  Chaos enabled but no chaos-* threads found.',
                  'Check Java backend is running and ChaosWorkloadGenerator is wired in.');
-  }
-  if (!_chaosVerifiedThisSession) {
-    _chaosVerifiedThisSession = true;
-    if (typeof pendo !== 'undefined') {
-      pendo.track('chaos_verification_completed', {
-        chaosThreadCount: chaosThreads,
-        blockedCount: blocked,
-        runnableCount: runnable,
-        verified: chaosThreads > 0,
-        isChaos: true
-      });
-    }
   }
 }
 // ══════════════════════════════════════════════════════════════════
