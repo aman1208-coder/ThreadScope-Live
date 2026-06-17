@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: threadscope-backend
+    env: java
+    repo: https://github.com/aman1208-coder/ThreadScope-Live
+    branch: main
+    plan: free
+    buildCommand: ./mvnw -DskipTests package
+    startCommand: java -jar target/threadscope-agent-2.0.0.jar
+    envVars:
+      - key: PORT
+        value: "8080"
+    autoDeploy: true
